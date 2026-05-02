@@ -1,0 +1,25 @@
+/target
+Cargo.lock.bak
+*.swp
+*.swo
+.DS_Store
+.idea/
+.vscode/
+
+# Secrets / runtime state — must never be committed.
+.env
+.env.*
+*.key
+*.pem
+identity.key
+
+# Private project context. These files live in the parent monorepo (the
+# coordinator repo) and intentionally do not belong in this public repo.
+# Listed explicitly so that if a sibling working tree is ever symlinked or
+# copied in by mistake, git ignores them.
+CLAUDE.md
+NOTES.md
+SOUL.md
+PRINCIPLES.md
+MEMORY.md
+.claude/

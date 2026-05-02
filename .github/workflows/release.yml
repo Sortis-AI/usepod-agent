@@ -1,0 +1,212 @@
+# Build provider-agent binaries on tag push and attach to a GitHub Release.
+#
+# Trigger:   tags matching `v*`  (e.g. `v0.1.2`).
+# Outputs:   per-platform binaries + matching `<asset>.sha256` files attached
+#            to the GitHub release named after the tag.
+#
+# Linux targets cross-compile via `cargo zigbuild` from a single ubuntu runner;
+# darwin and windows use native runners (zigbuild does not support macOS
+# code-signing/SDK and the windows MSVC toolchain).
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # required to upload release assets
+
+env:
+  # cargo-zigbuild version pinned via `cargo info cargo-zigbuild`.
+  ZIGBUILD_VERSION: '0.22.3'
+
+jobs:
+  resolve-version:
+    name: Resolve version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}        # vX.Y.Z
+      version_bare: ${{ steps.v.outputs.bare }}      # X.Y.Z (no leading v)
+    steps:
+      - id: v
+        run: |
+          ver="${GITHUB_REF#refs/tags/}"
+          bare="${ver#v}"
+          echo "version=$ver"   >> "$GITHUB_OUTPUT"
+          echo "bare=$bare"     >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: resolve-version
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            asset: usepod-agent-linux-x64
+            cross: zigbuild
+            ext: ''
+          - name: linux-arm64
+            runner: ubuntu-24.04
+            target: aarch64-unknown-linux-gnu
+            asset: usepod-agent-linux-arm64
+            cross: zigbuild
+            ext: ''
+          - name: darwin-arm64
+            runner: macos-14
+            target: aarch64-apple-darwin
+            asset: usepod-agent-darwin-arm64
+            cross: native
+            ext: ''
+          - name: windows-x64
+            runner: windows-2022
+            target: x86_64-pc-windows-msvc
+            asset: usepod-agent-windows-x64.exe
+            cross: native
+            ext: '.exe'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2.9.1
+        with:
+          shared-key: release-agent-${{ matrix.target }}
+
+      # --- Linux: cross-compile via cargo-zigbuild --------------------------
+      - name: Install zig + cargo-zigbuild (linux only)
+        if: matrix.cross == 'zigbuild'
+        uses: mlugg/setup-zig@v2
+
+      - name: Install cargo-zigbuild (linux only)
+        if: matrix.cross == 'zigbuild'
+        run: cargo install --locked cargo-zigbuild --version "${ZIGBUILD_VERSION}"
+
+      - name: Build (zigbuild)
+        if: matrix.cross == 'zigbuild'
+        run: cargo zigbuild --release --locked -p provider-agent --target ${{ matrix.target }}
+
+      # --- Native (macOS / Windows) ----------------------------------------
+      - name: Build (native)
+        if: matrix.cross == 'native'
+        run: cargo build --release --locked -p provider-agent --target ${{ matrix.target }}
+
+      # --- Strip + stage asset ---------------------------------------------
+      - name: Stage asset (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          src="target/${{ matrix.target }}/release/usepod-agent${{ matrix.ext }}"
+          dst="dist/${{ matrix.asset }}"
+          cp "$src" "$dst"
+          if command -v strip >/dev/null 2>&1; then
+            strip "$dst" || true
+          fi
+          if command -v sha256sum >/dev/null 2>&1; then
+            ( cd dist && sha256sum "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256" )
+          else
+            ( cd dist && shasum -a 256 "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256" )
+          fi
+
+      - name: Stage asset (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $src = "target/${{ matrix.target }}/release/usepod-agent${{ matrix.ext }}"
+          $dst = "dist/${{ matrix.asset }}"
+          Copy-Item -Path $src -Destination $dst -Force
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $dst).Hash.ToLower()
+          # Match coreutils format: "<hex>  <filename>"
+          "$hash  ${{ matrix.asset }}" | Out-File -Encoding ascii -NoNewline -FilePath "dist/${{ matrix.asset }}.sha256"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ${{ matrix.asset }}
+          path: |
+            dist/${{ matrix.asset }}
+            dist/${{ matrix.asset }}.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    needs: [resolve-version, build]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8.0.1
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List staged assets
+        run: ls -la dist/
+
+      - name: Combined SHA-256 manifest
+        run: |
+          set -euo pipefail
+          cd dist
+          # Generate a consolidated manifest covering every binary.
+          : > SHA256SUMS
+          for f in usepod-agent-*; do
+            case "$f" in
+              *.sha256) continue ;;
+              SHA256SUMS) continue ;;
+              *) sha256sum "$f" >> SHA256SUMS ;;
+            esac
+          done
+          cat SHA256SUMS
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3.0.0
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: provider-agent ${{ needs.resolve-version.outputs.version }}
+          generate_release_notes: true
+          files: |
+            dist/usepod-agent-linux-x64
+            dist/usepod-agent-linux-x64.sha256
+            dist/usepod-agent-linux-arm64
+            dist/usepod-agent-linux-arm64.sha256
+            dist/usepod-agent-darwin-arm64
+            dist/usepod-agent-darwin-arm64.sha256
+            dist/usepod-agent-windows-x64.exe
+            dist/usepod-agent-windows-x64.exe.sha256
+            dist/SHA256SUMS
+
+  refresh-version-pointer:
+    name: Refresh usepod.ai/agent-latest
+    needs: [resolve-version, release]
+    runs-on: ubuntu-24.04
+    steps:
+      # NOTE for ops: this job is intentionally a no-op until we wire up
+      # deployment credentials. The static asset `https://usepod.ai/agent-latest`
+      # must be updated to contain the new tag (e.g. `v0.1.0`) so that
+      # `install.sh` resolves the latest release. Two reasonable options:
+      #
+      # 1. Commit a one-line file in the `site/` repo and let the existing
+      #    site deploy pipeline pick it up. Requires a deploy key + a write
+      #    token plumbed through repo secrets (`SITE_DEPLOY_TOKEN`).
+      # 2. PUT the version directly to an object-storage bucket fronted by
+      #    the marketing site (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`
+      #    or equivalent).
+      #
+      # Until either is configured, this job just records the intended value.
+      - name: Print version pointer (placeholder)
+        run: |
+          echo "Would publish '${{ needs.resolve-version.outputs.version }}' to https://usepod.ai/agent-latest"
+          echo "TODO(ops): wire up SITE_DEPLOY_TOKEN or S3 creds."

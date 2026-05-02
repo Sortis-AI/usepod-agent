@@ -1,0 +1,30 @@
+[Unit]
+Description=Use Pod Provider Agent
+Documentation=https://usepod.ai/docs/agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=usepod
+Group=usepod
+WorkingDirectory=/var/lib/usepod-agent
+ExecStart=/usr/local/bin/usepod-agent
+Restart=always
+RestartSec=5
+
+# --- Hardening --------------------------------------------------------------
+# Conservative defaults; relax if your backend or identity path requires it.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/usepod-agent
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

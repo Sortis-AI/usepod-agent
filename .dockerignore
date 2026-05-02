@@ -1,0 +1,28 @@
+# Build artifacts — must be regenerated inside the image.
+target/
+**/target/
+
+# VCS / editor / OS noise.
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+.DS_Store
+
+# Local dev state that shouldn't leak into images.
+**/*.swp
+**/*.swo
+**/.env
+**/.env.*
+**/agent.toml
+**/identity.pem
+**/identity.key
+**/.omc/
+
+# Docs and other non-build files.
+**/*.md
+!provider-agent/README.md
+
+# Tests are copied explicitly; install scripts aren't needed in the image.
+provider-agent/install/

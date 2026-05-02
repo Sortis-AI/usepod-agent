@@ -1,0 +1,36 @@
+[operator]
+display_name  = "BlueBoxRig-01"
+wallet        = "11111111111111111111111111111111"
+contact_email = "ops@example.com"
+
+[coordinator]
+url             = "wss://api.usepod.ai/provider/connect"
+enrollment_code = "POD-ENROLL-7K9X4LM2"
+
+[identity]
+key_path = "~/.usepod-agent/identity.key"
+
+[[backends]]
+kind = "vllm"
+url  = "http://localhost:8000"
+
+[[backends]]
+kind = "openrouter"
+api_key_env = "OPENROUTER_API_KEY"
+markup = 0.05
+
+[pricing]
+default_input_per_1m  = 500_000
+default_output_per_1m = 750_000
+
+[pricing.models]
+"meta-llama/Llama-3.3-70B-Instruct"  = { input_per_1m = 300_000, output_per_1m = 450_000 }
+"mistralai/Mistral-Large"             = { input_per_1m = 800_000, output_per_1m = 1_200_000 }
+
+[limits]
+max_concurrent        = 8
+max_tokens_per_minute = 200_000
+
+[observability]
+prometheus_addr = "127.0.0.1:9090"
+log_level       = "info"
