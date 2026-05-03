@@ -10,4 +10,5 @@ pub mod discovery;
 pub mod heartbeat;
 pub mod identity;
 pub mod job_executor;
+pub mod setup;
 pub mod ws_client;

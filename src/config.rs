@@ -8,6 +8,12 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
+    /// Operator block is metadata only. Populated by `enroll` in v0.1.x; in
+    /// the v0.2.x pairing-code flow the dashboard owns operator identity
+    /// and the agent only needs coordinator URL + backends + identity. The
+    /// `setup` subcommand writes a placeholder so the field stays present
+    /// for back-compat with v0.1.x configs.
+    #[serde(default)]
     pub operator: Operator,
     pub coordinator: Coordinator,
     #[serde(default)]
@@ -21,9 +27,11 @@ pub struct Config {
     pub observability: Observability,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 pub struct Operator {
+    #[serde(default)]
     pub display_name: String,
+    #[serde(default)]
     pub wallet: String,
     #[serde(default)]
     pub contact_email: Option<String>,

@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-use provider_agent::{config, identity, ws_client};
+use provider_agent::{config, identity, setup as setup_mod, ws_client};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -42,6 +42,12 @@ struct Cli {
 enum Command {
     /// Connect to coordinator and serve jobs (default).
     Run,
+    /// Pair this agent with a Use Pod account via a one-time browser code.
+    Setup {
+        /// Override the coordinator base URL (default https://api.usepod.ai).
+        #[arg(long, value_name = "URL")]
+        coordinator: Option<String>,
+    },
     /// Print enrollment status and identity public key.
     Enroll,
     /// Parse config and validate without networking.
@@ -67,6 +73,7 @@ fn main() -> Result<()> {
                 println!("usepod-agent {VERSION}");
                 Ok(())
             }
+            Command::Setup { coordinator } => cmd_setup(coordinator).await,
             Command::Validate => cmd_validate(&cli).await,
             Command::Enroll => cmd_enroll(&cli).await,
             Command::Run => cmd_run(&cli).await,
@@ -84,6 +91,14 @@ fn init_tracing(level: &str) -> Result<()> {
         .try_init()
         .ok(); // tolerate re-init in tests
     Ok(())
+}
+
+async fn cmd_setup(coordinator: Option<String>) -> Result<()> {
+    let mut args = setup_mod::SetupArgs::defaults()?;
+    if let Some(c) = coordinator {
+        args.coordinator = c;
+    }
+    setup_mod::run(args).await
 }
 
 async fn cmd_validate(cli: &Cli) -> Result<()> {
