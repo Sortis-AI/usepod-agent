@@ -22,4 +22,7 @@ NOTES.md
 SOUL.md
 PRINCIPLES.md
 MEMORY.md
-.claude/
+.claude/*
+# …but ship the operator-facing Claude Code skill (public).
+!.claude/skills/
+!.claude/skills/**

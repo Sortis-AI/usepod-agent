@@ -94,12 +94,12 @@ jobs:
 
       - name: Build (zigbuild)
         if: matrix.cross == 'zigbuild'
-        run: cargo zigbuild --release --locked -p provider-agent --target ${{ matrix.target }}
+        run: cargo zigbuild --release --locked -p usepod-agent --target ${{ matrix.target }}
 
       # --- Native (macOS / Windows) ----------------------------------------
       - name: Build (native)
         if: matrix.cross == 'native'
-        run: cargo build --release --locked -p provider-agent --target ${{ matrix.target }}
+        run: cargo build --release --locked -p usepod-agent --target ${{ matrix.target }}
 
       # --- Strip + stage asset ---------------------------------------------
       - name: Stage asset (Unix)

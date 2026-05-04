@@ -37,6 +37,17 @@ cargo build --release
 ./target/release/usepod-agent --help
 ```
 
+## Claude Code skill
+
+A first-party Claude Code skill ships at `.claude/skills/usepod-agent-setup/`. If you run Claude Code on the host machine, it can install, pair, and service-ify the agent for you. To make it available globally:
+
+```sh
+mkdir -p ~/.claude/skills
+cp -r .claude/skills/usepod-agent-setup ~/.claude/skills/
+```
+
+Then in any Claude Code session: "set up usepod-agent on this machine".
+
 ## Cross-repo
 
 The Use Pod coordinator (the marketplace itself, USDC settlement, dashboard, SDKs) is developed in a separate, private monorepo. The wire protocol between agent and coordinator is documented in `src/ws_client.rs` (agent side) and mirrored on the coordinator side.

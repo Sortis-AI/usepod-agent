@@ -1087,39 +1087,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "provider-agent"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64",
- "bytes",
- "chrono",
- "clap",
- "directories",
- "ed25519-dalek",
- "futures-util",
- "hyper",
- "hyper-util",
- "prometheus",
- "rand 0.8.6",
- "rand_core 0.6.4",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-tungstenite",
- "tokio-util",
- "toml",
- "tracing",
- "tracing-subscriber",
- "url",
- "uuid",
-]
-
-[[package]]
 name = "quinn"
 version = "0.11.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2004,6 +1971,39 @@ dependencies = [
  "idna",
  "percent-encoding",
  "serde",
+]
+
+[[package]]
+name = "usepod-agent"
+version = "0.2.1"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "bytes",
+ "chrono",
+ "clap",
+ "directories",
+ "ed25519-dalek",
+ "futures-util",
+ "hyper",
+ "hyper-util",
+ "prometheus",
+ "rand 0.8.6",
+ "rand_core 0.6.4",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-tungstenite",
+ "tokio-util",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
 ]
 
 [[package]]

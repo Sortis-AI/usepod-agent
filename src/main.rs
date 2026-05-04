@@ -54,6 +54,12 @@ enum Command {
     Validate,
     /// Print version and exit.
     Version,
+    /// Re-run the official installer to upgrade to the latest release.
+    Upgrade {
+        /// Pin a specific release tag (default: latest).
+        #[arg(long, value_name = "TAG")]
+        version: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -77,6 +83,7 @@ fn main() -> Result<()> {
             Command::Validate => cmd_validate(&cli).await,
             Command::Enroll => cmd_enroll(&cli).await,
             Command::Run => cmd_run(&cli).await,
+            Command::Upgrade { version } => cmd_upgrade(version).await,
         }
     })
 }
@@ -135,4 +142,48 @@ async fn cmd_run(cli: &Cli) -> Result<()> {
         "starting agent"
     );
     ws_client::run(cfg, identity).await
+}
+
+async fn cmd_upgrade(version: Option<String>) -> Result<()> {
+    use std::process::Command as ProcCommand;
+
+    let installer_url = std::env::var("USEPOD_INSTALLER_URL")
+        .unwrap_or_else(|_| "https://usepod.ai/install.sh".to_string());
+
+    println!("usepod-agent {VERSION} → fetching installer from {installer_url}");
+    if let Some(v) = version.as_deref() {
+        println!("pinning to {v}");
+    }
+
+    let script = ProcCommand::new("curl")
+        .args(["-fsSL", &installer_url])
+        .output()
+        .context("failed to invoke curl; install curl or rerun the installer manually")?;
+    if !script.status.success() {
+        anyhow::bail!(
+            "curl failed ({}): {}",
+            script.status,
+            String::from_utf8_lossy(&script.stderr)
+        );
+    }
+
+    let mut sh = ProcCommand::new("sh");
+    sh.arg("-s").stdin(std::process::Stdio::piped());
+    if let Some(v) = version {
+        sh.env("USEPOD_VERSION", v);
+    }
+    let mut child = sh.spawn().context("failed to spawn sh")?;
+    use std::io::Write;
+    child
+        .stdin
+        .as_mut()
+        .context("sh stdin unavailable")?
+        .write_all(&script.stdout)
+        .context("failed to pipe installer to sh")?;
+    let status = child.wait().context("installer did not complete")?;
+    if !status.success() {
+        anyhow::bail!("installer exited with {status}");
+    }
+    println!("upgrade complete. Restart any running agent (systemctl restart usepod-agent, or relaunch).");
+    Ok(())
 }

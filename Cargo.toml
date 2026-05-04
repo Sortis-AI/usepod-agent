@@ -1,16 +1,21 @@
 [package]
-name = "provider-agent"
-version = "0.2.0"
+name = "usepod-agent"
+version = "0.2.1"
 edition = "2024"
 license = "Apache-2.0"
-description = "Use Pod marketplace provider agent"
+description = "Use Pod marketplace provider agent — connects local inference backends (vLLM, llama.cpp, LM Studio, Ollama) to the Use Pod coordinator and earns USDC for served jobs."
 repository = "https://github.com/Sortis-AI/usepod-agent"
+homepage = "https://usepod.ai"
+readme = "README.md"
+keywords = ["ai", "inference", "marketplace", "llm", "solana"]
+categories = ["command-line-utilities", "web-programming"]
 
 [[bin]]
 name = "usepod-agent"
 path = "src/main.rs"
 
 [lib]
+name = "provider_agent"
 path = "src/lib.rs"
 
 [dependencies]
