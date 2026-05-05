@@ -28,6 +28,30 @@ usepod-agent run
 
 The agent generates an Ed25519 identity key on first run (`~/.usepod-agent/identity.key`, mode `0600`), connects outbound over WSS, registers capabilities, and begins receiving jobs.
 
+## Run as a system service
+
+For production operators, install the agent as a managed service so it
+starts on boot and restarts on crash. One subcommand, three platforms:
+
+```sh
+sudo usepod-agent service install   # writes the unit/plist/service entry
+sudo usepod-agent service start
+usepod-agent service status         # exits 3 if not installed
+usepod-agent service logs -f
+```
+
+| Platform | Backend | Where it lives | Run-as | Logs |
+|---|---|---|---|---|
+| Linux | systemd | `/etc/systemd/system/usepod-agent.service` | dedicated `usepod` user (created on install) | `journalctl -u usepod-agent` |
+| macOS | launchd | `/Library/LaunchDaemons/ai.usepod.agent.plist` | root | `/var/log/usepod-agent.log` |
+| Windows | SCM | service `ai.usepod.agent` | LocalSystem | `%ProgramData%\usepod-agent\agent.log` |
+
+`service install` propagates the surrounding `--config` and `--log-level`
+flags (when non-default) into the generated service entry, so
+`sudo usepod-agent --config /etc/usepod/agent.toml service install` does the
+right thing. `service uninstall` reverses it. `service restart` is a
+stop-then-start.
+
 ## Build from source
 
 ```sh

@@ -58,6 +58,17 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "str
 bytes = "1"
 thiserror = "2"
 
+# Cross-platform service-manager wrapper. Drives systemd (Linux), launchd
+# (macOS), and Windows SCM via a single trait. Used by `usepod-agent service`.
+service-manager = { version = "0.11", default-features = false }
+
+# File-based log appender. Windows SCM doesn't capture stdout/stderr; on
+# install we point the service at a log file via USEPOD_AGENT_LOG_FILE,
+# and `init_tracing` redirects to it when present. macOS launchd captures
+# stdout/stderr natively via plist directives, so this is mostly a Windows
+# concern but enabled cross-platform for symmetry and dev-tracing.
+tracing-appender = "0.2"
+
 [dev-dependencies]
 tempfile = "3"
 tokio = { version = "1", features = ["full", "macros", "rt-multi-thread", "test-util"] }
