@@ -154,12 +154,13 @@ fn build_install_ctx(opts: &InstallOptions) -> Result<ServiceInstallCtx> {
 
     // Username: dedicated user on Linux. macOS + Windows fall back to the
     // service manager default (root / LocalSystem) — addressed in a follow-up
-    // PR per the plan.
-    let username = if cfg!(target_os = "linux") {
-        Some(SERVICE_USER.to_string())
-    } else {
-        None
-    };
+    // PR per the plan. Use #[cfg] blocks rather than cfg!() because
+    // SERVICE_USER itself is gated to linux; cfg!() doesn't gate symbol
+    // resolution and breaks the Windows + macOS builds.
+    #[cfg(target_os = "linux")]
+    let username = Some(SERVICE_USER.to_string());
+    #[cfg(not(target_os = "linux"))]
+    let username: Option<String> = None;
 
     Ok(ServiceInstallCtx {
         label: label(),
