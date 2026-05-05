@@ -1,3 +1,15 @@
+# Standalone systemd unit for the Use Pod provider agent.
+#
+# In v0.3.0+ the recommended path is:
+#
+#     sudo usepod-agent service install
+#     sudo usepod-agent service start
+#
+# which generates an equivalent unit, creates the `usepod` system user, and
+# enables the service on boot. This file is kept for operators who prefer to
+# manage the unit by hand, and remains the canonical reference for the unit
+# layout the binary's generator emits.
+
 [Unit]
 Description=Use Pod Provider Agent
 Documentation=https://usepod.ai/docs/agent
@@ -9,7 +21,7 @@ Type=simple
 User=usepod
 Group=usepod
 WorkingDirectory=/var/lib/usepod-agent
-ExecStart=/usr/local/bin/usepod-agent
+ExecStart=/usr/local/bin/usepod-agent run
 Restart=always
 RestartSec=5
 

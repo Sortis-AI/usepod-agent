@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-use provider_agent::{config, identity, setup as setup_mod, ws_client};
+use provider_agent::{config, identity, service as service_mod, setup as setup_mod, ws_client};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -60,6 +60,35 @@ enum Command {
         #[arg(long, value_name = "TAG")]
         version: Option<String>,
     },
+    /// Manage the agent as a system service (systemd / launchd / SCM).
+    Service {
+        #[command(subcommand)]
+        action: ServiceAction,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone)]
+enum ServiceAction {
+    /// Install the agent as a system service and enable on boot.
+    /// Requires sudo on Linux/macOS, Administrator on Windows.
+    Install,
+    /// Stop and remove the system service. Same elevation requirements.
+    Uninstall,
+    /// Start the installed service.
+    Start,
+    /// Stop the running service.
+    Stop,
+    /// Stop then start the service.
+    Restart,
+    /// One-shot status check (running / stopped / not installed).
+    /// Exits 0 for running/stopped, 3 for not installed.
+    Status,
+    /// Tail the service log.
+    Logs {
+        /// Follow new log lines (Ctrl-C to stop).
+        #[arg(short, long, default_value_t = false)]
+        follow: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -84,14 +113,79 @@ fn main() -> Result<()> {
             Command::Enroll => cmd_enroll(&cli).await,
             Command::Run => cmd_run(&cli).await,
             Command::Upgrade { version } => cmd_upgrade(version).await,
+            Command::Service { action } => cmd_service(&cli, action),
         }
     })
+}
+
+fn cmd_service(cli: &Cli, action: ServiceAction) -> Result<()> {
+    use service_mod::{Action, InstallOptions};
+    let resolved = match action {
+        ServiceAction::Install => Action::Install(InstallOptions {
+            // Propagate `--config` so the installed service points at the
+            // same agent.toml the operator validated interactively. If they
+            // didn't pass one, the service will search default locations
+            // just like an interactive `run`.
+            config: cli.config.clone(),
+            // Same for log level — if they overrode the default, the service
+            // should keep that override. Skip when it's the clap default
+            // ("info") so the service unit isn't littered with redundancy.
+            log_level: if cli.log_level != "info" {
+                Some(cli.log_level.clone())
+            } else {
+                None
+            },
+        }),
+        ServiceAction::Uninstall => Action::Uninstall,
+        ServiceAction::Start => Action::Start,
+        ServiceAction::Stop => Action::Stop,
+        ServiceAction::Restart => Action::Restart,
+        ServiceAction::Status => Action::Status,
+        ServiceAction::Logs { follow } => Action::Logs { follow },
+    };
+    service_mod::run(resolved)
 }
 
 fn init_tracing(level: &str) -> Result<()> {
     let filter = EnvFilter::try_new(level)
         .or_else(|_| EnvFilter::try_from_default_env())
         .unwrap_or_else(|_| EnvFilter::new("info"));
+
+    // When the agent runs under a service manager that doesn't capture
+    // stdout/stderr (Windows SCM in particular), `usepod-agent service
+    // install` injects USEPOD_AGENT_LOG_FILE into the service environment.
+    // Append-write logs there in addition to the default writer so operators
+    // get something to tail. journald + launchd already capture stdout, so
+    // on Linux/macOS this is a no-op unless the env var is explicitly set.
+    if let Ok(path_str) = std::env::var("USEPOD_AGENT_LOG_FILE") {
+        let path = PathBuf::from(&path_str);
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        // Non-rotating file appender; one log file, no rotation. Operators
+        // who want rotation can layer logrotate/Get-Eventlog on top — keeping
+        // the binary's behaviour simple and predictable.
+        let dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+        let file_name = path.file_name().unwrap_or_else(|| std::ffi::OsStr::new("usepod-agent.log"));
+        let appender = tracing_appender::rolling::never(dir, file_name);
+        // We deliberately drop the worker guard; the appender flushes per
+        // write under the hood, and we don't want to thread a guard through
+        // the runtime startup. Synchronous writes are fine for our log
+        // volume.
+        let (nb, _guard) = tracing_appender::non_blocking(appender);
+        // Leak the guard so it lives for the lifetime of the process. This
+        // is a one-time cost at startup.
+        Box::leak(Box::new(_guard));
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_target(false)
+            .with_writer(nb)
+            .with_ansi(false)
+            .try_init()
+            .ok();
+        return Ok(());
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(false)
