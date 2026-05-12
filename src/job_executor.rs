@@ -80,10 +80,7 @@ impl JobExecutor {
                     });
             }
         }
-        info!(
-            models = routes.len(),
-            max_concurrent, "job executor ready"
-        );
+        info!(models = routes.len(), max_concurrent, "job executor ready");
         Self {
             routes,
             max_concurrent,
@@ -155,7 +152,11 @@ impl JobExecutor {
             let outcome = tokio::time::timeout(deadline, exec).await;
 
             let final_msg: Value = match outcome {
-                Ok(Ok(JobResult { input_tokens, output_tokens, duration_ms })) => {
+                Ok(Ok(JobResult {
+                    input_tokens,
+                    output_tokens,
+                    duration_ms,
+                })) => {
                     let dur = if duration_ms == 0 {
                         started.elapsed().as_millis().min(u32::MAX as u128) as u32
                     } else {
@@ -167,6 +168,8 @@ impl JobExecutor {
                         "tokens": {
                             "input": input_tokens.unwrap_or(0),
                             "output": output_tokens.unwrap_or(0),
+                            "input_tokens": input_tokens.unwrap_or(0),
+                            "output_tokens": output_tokens.unwrap_or(0),
                         },
                         "duration_ms": dur,
                     })
@@ -208,10 +211,7 @@ impl JobExecutor {
             active.lock().await.remove(&job_id);
         });
 
-        self.active
-            .lock()
-            .await
-            .insert(job_id, JobHandle { task });
+        self.active.lock().await.insert(job_id, JobHandle { task });
     }
 
     /// Cancel a job in response to a coordinator `job_cancel`. Aborts the
@@ -242,7 +242,11 @@ struct WsJobSink {
 
 impl WsJobSink {
     fn new(job_id: Uuid, out_tx: mpsc::Sender<Message>) -> Self {
-        Self { job_id, out_tx, bytes_sent: 0 }
+        Self {
+            job_id,
+            out_tx,
+            bytes_sent: 0,
+        }
     }
 
     fn bytes_sent(&self) -> u64 {
@@ -316,7 +320,10 @@ mod tests {
             map_backend_error(&BackendError::Unreachable("x".into())).0,
             "backend_unreachable"
         );
-        assert_eq!(map_backend_error(&BackendError::Timeout).0, "backend_timeout");
+        assert_eq!(
+            map_backend_error(&BackendError::Timeout).0,
+            "backend_timeout"
+        );
         assert_eq!(
             map_backend_error(&BackendError::ModelNotFound("m".into())).0,
             "model_not_loaded"
@@ -326,7 +333,11 @@ mod tests {
             "auth_rejected_by_backend"
         );
         assert_eq!(
-            map_backend_error(&BackendError::BadStatus { status: 401, body: "x".into() }).0,
+            map_backend_error(&BackendError::BadStatus {
+                status: 401,
+                body: "x".into()
+            })
+            .0,
             "auth_rejected_by_backend"
         );
         assert_eq!(

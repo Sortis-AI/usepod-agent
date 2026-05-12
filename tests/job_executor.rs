@@ -125,7 +125,10 @@ async fn unknown_model_emits_model_not_loaded() {
     let v = next_text(&mut rx).await;
     assert_eq!(v["type"], "job_error");
     assert_eq!(v["error_code"], "model_not_loaded");
-    assert_eq!(v["job_id"].as_str().unwrap().parse::<Uuid>().unwrap(), job_id);
+    assert_eq!(
+        v["job_id"].as_str().unwrap().parse::<Uuid>().unwrap(),
+        job_id
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -145,9 +148,14 @@ async fn known_model_streams_chunks_then_done() {
     assert_eq!(c1["type"], "job_chunk");
     assert_eq!(c2["type"], "job_chunk");
     assert_eq!(done["type"], "job_done");
-    assert_eq!(done["job_id"].as_str().unwrap().parse::<Uuid>().unwrap(), job_id);
+    assert_eq!(
+        done["job_id"].as_str().unwrap().parse::<Uuid>().unwrap(),
+        job_id
+    );
     assert_eq!(done["tokens"]["input"], 7);
     assert_eq!(done["tokens"]["output"], 13);
+    assert_eq!(done["tokens"]["input_tokens"], 7);
+    assert_eq!(done["tokens"]["output_tokens"], 13);
 
     // base64 of "hello " is "aGVsbG8g"
     assert_eq!(c1["data"], "aGVsbG8g");
@@ -205,7 +213,10 @@ async fn over_capacity_yields_out_of_capacity() {
             break;
         }
     }
-    assert!(saw_rejection, "expected out_of_capacity for second dispatch");
+    assert!(
+        saw_rejection,
+        "expected out_of_capacity for second dispatch"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

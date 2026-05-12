@@ -3,8 +3,8 @@
 //! - [`Client`] is a thin wrapper around `reqwest::Client` with a sensible
 //!   default timeout and a single user-agent string.
 //! - [`stream_chat_completions`] performs the canonical OpenAI-compatible
-//!   `POST /v1/chat/completions` with `stream: true` and pipes upstream bytes
-//!   into a [`JobSink`] verbatim.
+//!   `POST /v1/chat/completions` with `stream: true`, pipes upstream bytes into
+//!   a [`JobSink`] verbatim, and records advisory usage from SSE chunks.
 
 use std::time::{Duration, Instant};
 
@@ -77,8 +77,7 @@ pub async fn probe(
 }
 
 /// POST a chat-completions request to an OpenAI-compatible endpoint with
-/// `stream: true` and relay upstream byte chunks into `sink`. The agent does
-/// not parse the SSE body — it pipes bytes through untouched.
+/// `stream: true` and relay upstream byte chunks into `sink`.
 ///
 /// Token counts in the returned [`JobResult`] are advisory; the coordinator's
 /// tokenizer is authoritative.
@@ -94,6 +93,11 @@ pub async fn stream_chat_completions(
     // defensive — a non-streaming backend response would hang the byte relay.
     if let Some(obj) = body.as_object_mut() {
         obj.insert("stream".into(), Value::Bool(true));
+        obj.entry("stream_options").or_insert_with(|| {
+            serde_json::json!({
+                "include_usage": true
+            })
+        });
         if !obj.contains_key("model") {
             obj.insert("model".into(), Value::String(job.model_id.clone()));
         }
@@ -120,10 +124,12 @@ pub async fn stream_chat_completions(
 
     let mut stream = resp.bytes_stream();
     let mut byte_count: usize = 0;
+    let mut usage_parser = SseUsageParser::default();
     while let Some(chunk) = stream.next().await {
         match chunk {
             Ok(bytes) => {
                 byte_count += bytes.len();
+                usage_parser.push(&bytes);
                 if let Err(e) = sink.send_chunk(bytes).await {
                     warn!(?e, "JobSink rejected chunk; aborting stream");
                     return Err(e);
@@ -146,11 +152,106 @@ pub async fn stream_chat_completions(
         "stream complete"
     );
 
+    let usage = usage_parser.finish();
     Ok(JobResult {
-        input_tokens: None,
-        output_tokens: None,
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
         duration_ms,
     })
+}
+
+#[derive(Debug, Default)]
+struct ParsedUsage {
+    input_tokens: Option<u32>,
+    output_tokens: Option<u32>,
+}
+
+#[derive(Debug, Default)]
+struct SseUsageParser {
+    pending: String,
+    usage: ParsedUsage,
+}
+
+impl SseUsageParser {
+    fn push(&mut self, bytes: &[u8]) {
+        self.pending.push_str(&String::from_utf8_lossy(bytes));
+        while let Some(index) = self.pending.find('\n') {
+            let line: String = self.pending.drain(..=index).collect();
+            self.parse_line(line.trim_end_matches(['\r', '\n']));
+        }
+    }
+
+    fn finish(mut self) -> ParsedUsage {
+        if !self.pending.is_empty() {
+            let line = std::mem::take(&mut self.pending);
+            self.parse_line(line.trim_end_matches(['\r', '\n']));
+        }
+        self.usage
+    }
+
+    fn parse_line(&mut self, line: &str) {
+        let Some(data) = line.strip_prefix("data:") else {
+            return;
+        };
+        let data = data.trim();
+        if data.is_empty() || data == "[DONE]" {
+            return;
+        }
+        let Ok(value) = serde_json::from_str::<Value>(data) else {
+            return;
+        };
+        let Some(usage) = value.get("usage").filter(|usage| usage.is_object()) else {
+            return;
+        };
+        if let Some(input_tokens) = pick_u32(usage, &["input_tokens", "prompt_tokens", "input"]) {
+            self.usage.input_tokens = Some(input_tokens);
+        }
+        if let Some(output_tokens) =
+            pick_u32(usage, &["output_tokens", "completion_tokens", "output"])
+        {
+            self.usage.output_tokens = Some(output_tokens);
+        }
+    }
+}
+
+fn pick_u32(value: &Value, keys: &[&str]) -> Option<u32> {
+    keys.iter()
+        .filter_map(|key| value.get(*key).and_then(|value| value.as_u64()))
+        .find_map(|value| u32::try_from(value).ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SseUsageParser;
+
+    #[test]
+    fn parses_openai_stream_usage() {
+        let mut parser = SseUsageParser::default();
+
+        parser.push(
+            br#"data: {"choices":[{"delta":{"content":"hi"}}],"usage":null}
+data: {"choices":[],"usage":{"prompt_tokens":17,"completion_tokens":23,"total_tokens":40}}
+data: [DONE]
+"#,
+        );
+
+        let usage = parser.finish();
+        assert_eq!(usage.input_tokens, Some(17));
+        assert_eq!(usage.output_tokens, Some(23));
+    }
+
+    #[test]
+    fn parses_usage_split_across_chunks() {
+        let mut parser = SseUsageParser::default();
+
+        parser.push(br#"data: {"choices":[],"usage":{"input_tokens":12"#);
+        parser.push(br#","output_tokens":34}}"#);
+        parser.push(b"\n\n");
+
+        let usage = parser.finish();
+        assert_eq!(usage.input_tokens, Some(12));
+        assert_eq!(usage.output_tokens, Some(34));
+    }
 }
 
 fn map_send_err(e: reqwest::Error) -> BackendError {
@@ -188,6 +289,5 @@ pub fn parse_openai_models(v: &Value, native: bool) -> Vec<super::BackendModel> 
                 native,
             })
         })
-    .collect()
+        .collect()
 }
-
