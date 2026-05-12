@@ -47,6 +47,12 @@ if ($env:USEPOD_VERSION) {
         Write-Host "usepod-agent installer: could not resolve latest version; falling back to $FallbackVersion"
         $Version = $FallbackVersion
     }
+    $ResolvedVersion = if ($Version.StartsWith('v')) { $Version.Substring(1) } else { $Version }
+    $DefaultVersion = if ($FallbackVersion.StartsWith('v')) { $FallbackVersion.Substring(1) } else { $FallbackVersion }
+    if ([version]$ResolvedVersion -lt [version]$DefaultVersion) {
+        Write-Host "usepod-agent installer: latest version $Version is older than bundled default $FallbackVersion; using $FallbackVersion"
+        $Version = $FallbackVersion
+    }
 }
 if (-not $Version.StartsWith('v')) { $Version = "v$Version" }
 

@@ -32,6 +32,15 @@ info() {
     printf 'usepod-agent installer: %s\n' "$1"
 }
 
+version_key() {
+    v=$(printf '%s' "$1" | sed 's/^v//')
+    old_ifs=$IFS
+    IFS=.
+    set -- $v
+    IFS=$old_ifs
+    printf '%03d%03d%03d\n' "${1:-0}" "${2:-0}" "${3:-0}"
+}
+
 need_cmd() {
     if ! command -v "$1" >/dev/null 2>&1; then
         err "required command not found: $1"
@@ -89,6 +98,10 @@ else
     fi
     if [ -z "${VERSION:-}" ]; then
         info "could not resolve latest version; falling back to ${FALLBACK_VERSION}"
+        VERSION="$FALLBACK_VERSION"
+    fi
+    if [ "$(version_key "$VERSION")" \< "$(version_key "$FALLBACK_VERSION")" ]; then
+        info "latest version ${VERSION} is older than bundled default ${FALLBACK_VERSION}; using ${FALLBACK_VERSION}"
         VERSION="$FALLBACK_VERSION"
     fi
 fi
