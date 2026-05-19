@@ -18,7 +18,7 @@ $ProgressPreference = 'SilentlyContinue'
 
 # --- Configuration --------------------------------------------------------
 
-$FallbackVersion = 'v0.3.2'
+$FallbackVersion = 'v0.3.3'
 $BaseUrl = if ($env:USEPOD_BASE_URL) { $env:USEPOD_BASE_URL } else { 'https://usepod.ai' }
 $Repo    = if ($env:USEPOD_REPO)     { $env:USEPOD_REPO }     else { 'Sortis-AI/usepod-agent' }
 

@@ -15,6 +15,7 @@ use base64::engine::general_purpose::STANDARD as B64;
 use futures_util::{SinkExt, StreamExt};
 use rand::Rng;
 use serde_json::{Value, json};
+use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, error, info, warn};
@@ -27,6 +28,22 @@ use crate::identity::Identity;
 use crate::job_executor::JobExecutor;
 
 const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Connect-once outcome. We split pre-auth from post-auth failures so a deploy
+/// of the coordinator (which drops a steady-state session) doesn't escalate
+/// the reconnect backoff the same way a real outage does.
+#[derive(Debug, Error)]
+enum ConnectError {
+    /// Disconnected before reaching steady state (dial, TLS, handshake, auth
+    /// response). Treated as a real failure; reconnect backoff escalates.
+    #[error("pre-auth: {0:#}")]
+    PreAuth(anyhow::Error),
+    /// Disconnected after `auth_ok` and discovery succeeded — i.e. an
+    /// established session ended. Treated as a planned cycle (coordinator
+    /// restart, network blip); reconnect backoff resets.
+    #[error("post-auth: {0:#}")]
+    PostAuth(anyhow::Error),
+}
 
 /// Connect, authenticate, and run forever with reconnect.
 pub async fn run(cfg: Config, mut identity: Identity) -> Result<()> {
@@ -41,7 +58,15 @@ pub async fn run(cfg: Config, mut identity: Identity) -> Result<()> {
                 consecutive_failures = 0;
                 backoff_ms = 1000;
             }
-            Err(err) => {
+            Err(ConnectError::PostAuth(err)) => {
+                // Steady-state session ended — almost always a coordinator
+                // deploy or transient network issue. Reset like a clean close
+                // so we don't stretch the gap during a blue-green rotation.
+                warn!(?err, "coordinator session ended; reconnecting");
+                consecutive_failures = 0;
+                backoff_ms = 1000;
+            }
+            Err(ConnectError::PreAuth(err)) => {
                 consecutive_failures += 1;
                 error!(?err, attempts = consecutive_failures, "coordinator connection failed");
                 if consecutive_failures == 10 {
@@ -57,25 +82,29 @@ pub async fn run(cfg: Config, mut identity: Identity) -> Result<()> {
     }
 }
 
-async fn connect_once(cfg: &Config, identity: &mut Identity) -> Result<()> {
+async fn connect_once(cfg: &Config, identity: &mut Identity) -> Result<(), ConnectError> {
     info!(url = %cfg.coordinator.url, "dialing coordinator");
     let (ws, _resp) = tokio_tungstenite::connect_async(&cfg.coordinator.url)
         .await
-        .with_context(|| format!("connecting to {}", cfg.coordinator.url))?;
+        .with_context(|| format!("connecting to {}", cfg.coordinator.url))
+        .map_err(ConnectError::PreAuth)?;
     let (mut sink, mut stream) = ws.split();
 
     // 1. Receive auth_challenge
-    let challenge = recv_json(&mut stream).await?;
+    let challenge = recv_json(&mut stream).await.map_err(ConnectError::PreAuth)?;
     if challenge.get("type").and_then(Value::as_str) != Some("auth_challenge") {
-        bail!("expected auth_challenge, got {challenge}");
+        return Err(ConnectError::PreAuth(anyhow!(
+            "expected auth_challenge, got {challenge}"
+        )));
     }
     let nonce_b64 = challenge
         .get("nonce")
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("auth_challenge missing nonce"))?;
+        .ok_or_else(|| ConnectError::PreAuth(anyhow!("auth_challenge missing nonce")))?;
     let nonce = B64
         .decode(nonce_b64.as_bytes())
-        .context("decoding challenge nonce")?;
+        .context("decoding challenge nonce")
+        .map_err(ConnectError::PreAuth)?;
 
     // 2. Sign nonce, send auth_response
     let mut auth_response = json!({
@@ -89,22 +118,32 @@ async fn connect_once(cfg: &Config, identity: &mut Identity) -> Result<()> {
             auth_response["enrollment_code"] = json!(code);
         }
     }
-    sink.send(Message::Text(auth_response.to_string().into())).await?;
+    sink.send(Message::Text(auth_response.to_string().into()))
+        .await
+        .map_err(|e| ConnectError::PreAuth(e.into()))?;
 
     // 3. Await auth_ok
-    let ack = recv_json(&mut stream).await?;
+    let ack = recv_json(&mut stream).await.map_err(ConnectError::PreAuth)?;
     match ack.get("type").and_then(Value::as_str) {
         Some("auth_ok") => {}
         Some("auth_failed") => {
             let reason = ack.get("reason").and_then(Value::as_str).unwrap_or("unknown");
-            bail!("coordinator rejected auth: {reason}");
+            return Err(ConnectError::PreAuth(anyhow!(
+                "coordinator rejected auth: {reason}"
+            )));
         }
-        other => bail!("expected auth_ok, got type={other:?}"),
+        other => {
+            return Err(ConnectError::PreAuth(anyhow!(
+                "expected auth_ok, got type={other:?}"
+            )));
+        }
     }
     if let Some(pid) = ack.get("provider_id").and_then(Value::as_str) {
         if identity.provider_id.as_deref() != Some(pid) {
             info!(provider_id = pid, "persisting provider_id from coordinator");
-            identity.set_provider_id(pid.to_string())?;
+            identity
+                .set_provider_id(pid.to_string())
+                .map_err(ConnectError::PreAuth)?;
         }
     }
     info!("authenticated with coordinator");
@@ -119,7 +158,12 @@ async fn connect_once(cfg: &Config, identity: &mut Identity) -> Result<()> {
         "discovery complete"
     );
     let capabilities = discovery_result.to_capabilities(cfg);
-    sink.send(Message::Text(capabilities.to_string().into())).await?;
+    // Past this point, the coordinator has accepted us and we've started the
+    // steady-state pump. Any further error is a PostAuth — treat as a planned
+    // cycle so a deploy doesn't escalate the reconnect backoff.
+    sink.send(Message::Text(capabilities.to_string().into()))
+        .await
+        .map_err(|e| ConnectError::PostAuth(e.into()))?;
     debug!("sent capabilities");
 
     // 5. Spawn the heartbeat loop. We funnel both heartbeat and any future
@@ -164,7 +208,7 @@ async fn connect_once(cfg: &Config, identity: &mut Identity) -> Result<()> {
     .await;
 
     hb_handle.abort();
-    result
+    result.map_err(ConnectError::PostAuth)
 }
 
 /// Parse an inbound coordinator frame and route `job` / `job_cancel` to the

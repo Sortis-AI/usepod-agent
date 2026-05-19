@@ -14,7 +14,7 @@ set -eu
 
 # --- Configuration --------------------------------------------------------
 
-FALLBACK_VERSION="v0.3.2"
+FALLBACK_VERSION="v0.3.3"
 BASE_URL="${USEPOD_BASE_URL:-https://usepod.ai}"
 REPO="${USEPOD_REPO:-Sortis-AI/usepod-agent}"
 PREFIX="${USEPOD_PREFIX:-/usr/local}"
