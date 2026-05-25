@@ -1,4 +1,4 @@
-# Build provider-agent binaries on tag push and attach to a GitHub Release.
+# Build usepod-agent binaries on tag push and attach to a GitHub Release.
 #
 # Trigger:   tags matching `v*`  (e.g. `v0.1.2`).
 # Outputs:   per-platform binaries + matching `<asset>.sha256` files attached
@@ -175,7 +175,7 @@ jobs:
         uses: softprops/action-gh-release@v3.0.0
         with:
           tag_name: ${{ github.ref_name }}
-          name: provider-agent ${{ needs.resolve-version.outputs.version }}
+          name: usepod-agent ${{ needs.resolve-version.outputs.version }}
           generate_release_notes: true
           files: |
             dist/usepod-agent-linux-x64
