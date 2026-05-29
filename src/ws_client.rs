@@ -18,7 +18,47 @@ use serde_json::{Value, json};
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tracing::{debug, error, info, warn};
+
+/// How a steady-state coordinator connection ended. Lets `run` choose
+/// INFO vs WARN for the reconnect log: a clean `Close(1001 GoingAway)`
+/// frame — typical during a blue-green deploy — is expected and the
+/// agent should not pretend it's an outage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CloseKind {
+    /// Coordinator sent `Close(1001, reason="drain:deploy")` — almost
+    /// always blue-green rollover.
+    DrainDeploy,
+    /// Coordinator sent `Close(1001, reason="drain:operator")` — admin /
+    /// operator-initiated disconnect. Reserved for a future kick endpoint.
+    DrainOperator,
+    /// Clean `Close(1001)` from the server but the reason was missing or
+    /// a value this agent build doesn't recognise (e.g. older server, or
+    /// newer one with a reason we'll learn about later). Still expected.
+    GracefulOther,
+    /// Stream EOF without a Close frame, outbound mpsc closed, or any
+    /// other path that wasn't a server-initiated graceful close. WARN.
+    Unexpected,
+}
+
+/// Inspect a `Close` frame and decide which `CloseKind` it represents.
+/// The reason string is the wire contract with `services/api/src/
+/// marketplace/connection.rs::ShutdownReason::as_wire`.
+fn classify_close(frame: Option<&CloseFrame>) -> CloseKind {
+    let Some(f) = frame else {
+        return CloseKind::GracefulOther;
+    };
+    let code: u16 = f.code.into();
+    if code != 1001 {
+        return CloseKind::Unexpected;
+    }
+    match f.reason.as_ref() {
+        "drain:deploy" => CloseKind::DrainDeploy,
+        "drain:operator" => CloseKind::DrainOperator,
+        _ => CloseKind::GracefulOther,
+    }
+}
 
 use crate::backend::{Job, WireFormat};
 use crate::config::Config;
@@ -52,9 +92,22 @@ pub async fn run(cfg: Config, mut identity: Identity) -> Result<()> {
 
     loop {
         match connect_once(&cfg, &mut identity).await {
-            Ok(()) => {
+            Ok(kind) => {
                 // Clean disconnect (server closed). Restart with the post-success backoff schedule.
-                warn!("coordinator connection closed; reconnecting");
+                match kind {
+                    CloseKind::DrainDeploy => {
+                        info!("coordinator drained for deploy; reconnecting")
+                    }
+                    CloseKind::DrainOperator => {
+                        info!("coordinator requested disconnect; reconnecting")
+                    }
+                    CloseKind::GracefulOther => {
+                        info!("coordinator going away; reconnecting")
+                    }
+                    CloseKind::Unexpected => {
+                        warn!("coordinator connection closed unexpectedly; reconnecting")
+                    }
+                }
                 consecutive_failures = 0;
                 backoff_ms = 1000;
             }
@@ -82,7 +135,7 @@ pub async fn run(cfg: Config, mut identity: Identity) -> Result<()> {
     }
 }
 
-async fn connect_once(cfg: &Config, identity: &mut Identity) -> Result<(), ConnectError> {
+async fn connect_once(cfg: &Config, identity: &mut Identity) -> Result<CloseKind, ConnectError> {
     info!(url = %cfg.coordinator.url, "dialing coordinator");
     let (ws, _resp) = tokio_tungstenite::connect_async(&cfg.coordinator.url)
         .await
@@ -179,13 +232,13 @@ async fn connect_once(cfg: &Config, identity: &mut Identity) -> Result<(), Conne
     );
 
     // 6. Read loop / write pump.
-    let result: Result<()> = async {
+    let result: Result<CloseKind> = async {
         loop {
             tokio::select! {
                 outbound = out_rx.recv() => {
                     match outbound {
                         Some(msg) => sink.send(msg).await?,
-                        None => break,
+                        None => return Ok(CloseKind::Unexpected),
                     }
                 }
                 inbound = stream.next() => {
@@ -195,15 +248,14 @@ async fn connect_once(cfg: &Config, identity: &mut Identity) -> Result<(), Conne
                             handle_inbound_text(&executor, &txt).await;
                         }
                         Some(Ok(Message::Ping(p))) => sink.send(Message::Pong(p)).await?,
-                        Some(Ok(Message::Close(_))) => break,
+                        Some(Ok(Message::Close(frame))) => return Ok(classify_close(frame.as_ref())),
                         Some(Ok(_)) => {}
                         Some(Err(e)) => return Err(anyhow!("ws read error: {e}")),
-                        None => break,
+                        None => return Ok(CloseKind::Unexpected),
                     }
                 }
             }
         }
-        Ok(())
     }
     .await;
 
@@ -286,6 +338,72 @@ where
             Message::Ping(_) | Message::Pong(_) | Message::Frame(_) => continue,
             Message::Close(_) => bail!("ws closed during handshake"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CloseKind, classify_close};
+    use tokio_tungstenite::tungstenite::protocol::CloseFrame;
+    use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+
+    fn frame(code: u16, reason: &'static str) -> CloseFrame {
+        CloseFrame {
+            code: CloseCode::from(code),
+            reason: reason.into(),
+        }
+    }
+
+    #[test]
+    fn classify_close_drain_deploy_is_recognised() {
+        assert_eq!(
+            classify_close(Some(&frame(1001, "drain:deploy"))),
+            CloseKind::DrainDeploy
+        );
+    }
+
+    #[test]
+    fn classify_close_drain_operator_is_recognised() {
+        assert_eq!(
+            classify_close(Some(&frame(1001, "drain:operator"))),
+            CloseKind::DrainOperator
+        );
+    }
+
+    #[test]
+    fn classify_close_1001_with_unknown_reason_is_graceful_other() {
+        // Older server / newer reason value we don't yet know about — both
+        // should be treated as graceful so we don't log WARN on a deploy
+        // mismatch.
+        assert_eq!(
+            classify_close(Some(&frame(1001, "coordinator shutting down"))),
+            CloseKind::GracefulOther
+        );
+        assert_eq!(
+            classify_close(Some(&frame(1001, ""))),
+            CloseKind::GracefulOther
+        );
+    }
+
+    #[test]
+    fn classify_close_missing_frame_is_graceful_other() {
+        // Some peers send a bare Close with no payload — still a clean
+        // close, just no annotation.
+        assert_eq!(classify_close(None), CloseKind::GracefulOther);
+    }
+
+    #[test]
+    fn classify_close_non_1001_code_is_unexpected() {
+        // Protocol error, abnormal close, etc. — these are NOT planned
+        // drains and should keep their WARN log.
+        assert_eq!(
+            classify_close(Some(&frame(1002, "protocol error"))),
+            CloseKind::Unexpected
+        );
+        assert_eq!(
+            classify_close(Some(&frame(1006, "abnormal"))),
+            CloseKind::Unexpected
+        );
     }
 }
 
