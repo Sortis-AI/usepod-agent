@@ -52,10 +52,15 @@ jobs:
             cross: zigbuild
             ext: ''
           - name: linux-arm64
-            runner: ubuntu-24.04
+            # Native ARM runner (free for public repos) instead of zigbuild:
+            # current rustc passes the cortex-a53-843419 erratum linker arg
+            # for aarch64-linux and every available zig rejects it, so the
+            # cross-compile path is unfixable from our side. Native needs no
+            # linker games at all.
+            runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             asset: usepod-agent-linux-arm64
-            cross: zigbuild
+            cross: native
             ext: ''
           - name: darwin-arm64
             runner: macos-14
