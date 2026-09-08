@@ -88,10 +88,10 @@ jobs:
         if: matrix.cross == 'zigbuild'
         uses: mlugg/setup-zig@v2
         with:
-          # Pinned: zig 0.15 dropped support for the `--fix-cortex-a53-843419`
-          # erratum arg rustc passes for aarch64-linux, which broke the
-          # linux-arm64 leg of the v0.3.5 release. 0.14.x accepts it.
-          version: 0.14.1
+          # Pinned: newer zig rejects the `--fix-cortex-a53-843419` erratum arg
+          # rustc passes for aarch64-linux (broke the v0.3.5 release on both
+          # 0.15 and 0.14). 0.13.x accepts it.
+          version: 0.13.0
 
       - name: Install cargo-zigbuild (linux only)
         if: matrix.cross == 'zigbuild'
