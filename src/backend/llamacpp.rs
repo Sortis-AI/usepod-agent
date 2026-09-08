@@ -54,6 +54,22 @@ impl Backend for LlamaCppBackend {
                 });
             }
         }
+        // llama.cpp's /v1/models carries only n_ctx_train (the model's
+        // TRAINED window, nested under `meta`), but the server validates
+        // requests against the CONFIGURED window — `-c/--ctx-size`, exposed
+        // as `default_generation_settings.n_ctx` on GET /props. That is the
+        // number the coordinator must clamp against, so probe it and apply
+        // to every model still missing a window. Best-effort: a build
+        // without /props just leaves the field unset.
+        let props_url = format!("{}/props", self.base_url);
+        if models.iter().any(|m| m.context_window.is_none())
+            && let Ok(props) = get_json(&self.client, &props_url, None).await
+            && let Some(n_ctx) = parse_props_n_ctx(&props)
+        {
+            for m in models.iter_mut() {
+                m.context_window.get_or_insert(n_ctx);
+            }
+        }
         Ok(models)
     }
 
@@ -76,5 +92,38 @@ impl Backend for LlamaCppBackend {
     async fn execute(&self, job: &Job, sink: &mut dyn JobSink) -> BackendResult<JobResult> {
         let endpoint = format!("{}/v1/chat/completions", self.base_url);
         stream_chat_completions(&self.client, &endpoint, None, job, sink).await
+    }
+}
+
+/// Pull the configured context window out of a llama.cpp `GET /props`
+/// response (`default_generation_settings.n_ctx`).
+fn parse_props_n_ctx(props: &serde_json::Value) -> Option<u32> {
+    props
+        .get("default_generation_settings")?
+        .get("n_ctx")?
+        .as_u64()
+        .filter(|n| *n > 0)
+        .map(|n| n as u32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_props_n_ctx;
+
+    #[test]
+    fn props_n_ctx_is_read_from_default_generation_settings() {
+        // Shape per tools/server/README.md (verified 2026-09-08).
+        let props = serde_json::json!({
+            "default_generation_settings": { "id": 0, "n_ctx": 70000 },
+            "total_slots": 1
+        });
+        assert_eq!(parse_props_n_ctx(&props), Some(70_000));
+    }
+
+    #[test]
+    fn missing_or_zero_n_ctx_yields_none() {
+        assert_eq!(parse_props_n_ctx(&serde_json::json!({})), None);
+        let zero = serde_json::json!({"default_generation_settings": {"n_ctx": 0}});
+        assert_eq!(parse_props_n_ctx(&zero), None);
     }
 }

@@ -53,6 +53,27 @@ pub async fn get_json(
     Ok(v)
 }
 
+/// POST a JSON body and parse the JSON response. Same error mapping as
+/// `get_json`.
+pub async fn post_json(client: &reqwest::Client, url: &str, body: &Value) -> BackendResult<Value> {
+    let resp = client
+        .post(url)
+        .json(body)
+        .send()
+        .await
+        .map_err(map_send_err)?;
+    let status = resp.status();
+    if !status.is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(BackendError::BadStatus {
+            status: status.as_u16(),
+            body: text,
+        });
+    }
+    let v: Value = resp.json().await?;
+    Ok(v)
+}
+
 /// Probe an endpoint with GET and return latency. The endpoint is considered
 /// healthy if it returns any 2xx.
 pub async fn probe(

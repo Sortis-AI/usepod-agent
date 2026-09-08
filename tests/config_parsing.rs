@@ -17,7 +17,11 @@ fn parses_example_config() {
     assert_eq!(cfg.backends[1].kind, "openrouter");
     assert_eq!(cfg.pricing.default_input_per_1m, 500_000);
     assert_eq!(cfg.pricing.default_output_per_1m, 750_000);
-    assert!(cfg.pricing.models.contains_key("meta-llama/Llama-3.3-70B-Instruct"));
+    assert!(
+        cfg.pricing
+            .models
+            .contains_key("meta-llama/Llama-3.3-70B-Instruct")
+    );
     assert_eq!(cfg.limits.max_concurrent, 8);
 }
 
@@ -63,7 +67,10 @@ fn rejects_duplicate_backends() {
     "#;
     let cfg: provider_agent::config::Config = toml::from_str(toml_str).unwrap();
     let err = provider_agent::config::validate(&cfg, false).unwrap_err();
-    assert!(format!("{err}").to_lowercase().contains("duplicate"), "got: {err}");
+    assert!(
+        format!("{err}").to_lowercase().contains("duplicate"),
+        "got: {err}"
+    );
 }
 
 #[test]

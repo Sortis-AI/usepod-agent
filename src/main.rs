@@ -166,7 +166,9 @@ fn init_tracing(level: &str) -> Result<()> {
         // who want rotation can layer logrotate/Get-Eventlog on top — keeping
         // the binary's behaviour simple and predictable.
         let dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
-        let file_name = path.file_name().unwrap_or_else(|| std::ffi::OsStr::new("usepod-agent.log"));
+        let file_name = path
+            .file_name()
+            .unwrap_or_else(|| std::ffi::OsStr::new("usepod-agent.log"));
         let appender = tracing_appender::rolling::never(dir, file_name);
         // We deliberately drop the worker guard; the appender flushes per
         // write under the hood, and we don't want to thread a guard through
@@ -278,6 +280,8 @@ async fn cmd_upgrade(version: Option<String>) -> Result<()> {
     if !status.success() {
         anyhow::bail!("installer exited with {status}");
     }
-    println!("upgrade complete. Restart any running agent (systemctl restart usepod-agent, or relaunch).");
+    println!(
+        "upgrade complete. Restart any running agent (systemctl restart usepod-agent, or relaunch)."
+    );
     Ok(())
 }

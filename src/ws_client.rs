@@ -121,7 +121,11 @@ pub async fn run(cfg: Config, mut identity: Identity) -> Result<()> {
             }
             Err(ConnectError::PreAuth(err)) => {
                 consecutive_failures += 1;
-                error!(?err, attempts = consecutive_failures, "coordinator connection failed");
+                error!(
+                    ?err,
+                    attempts = consecutive_failures,
+                    "coordinator connection failed"
+                );
                 if consecutive_failures == 10 {
                     error!("coordinator unreachable after 10 attempts; will keep retrying");
                 }
@@ -144,7 +148,9 @@ async fn connect_once(cfg: &Config, identity: &mut Identity) -> Result<CloseKind
     let (mut sink, mut stream) = ws.split();
 
     // 1. Receive auth_challenge
-    let challenge = recv_json(&mut stream).await.map_err(ConnectError::PreAuth)?;
+    let challenge = recv_json(&mut stream)
+        .await
+        .map_err(ConnectError::PreAuth)?;
     if challenge.get("type").and_then(Value::as_str) != Some("auth_challenge") {
         return Err(ConnectError::PreAuth(anyhow!(
             "expected auth_challenge, got {challenge}"
@@ -176,11 +182,16 @@ async fn connect_once(cfg: &Config, identity: &mut Identity) -> Result<CloseKind
         .map_err(|e| ConnectError::PreAuth(e.into()))?;
 
     // 3. Await auth_ok
-    let ack = recv_json(&mut stream).await.map_err(ConnectError::PreAuth)?;
+    let ack = recv_json(&mut stream)
+        .await
+        .map_err(ConnectError::PreAuth)?;
     match ack.get("type").and_then(Value::as_str) {
         Some("auth_ok") => {}
         Some("auth_failed") => {
-            let reason = ack.get("reason").and_then(Value::as_str).unwrap_or("unknown");
+            let reason = ack
+                .get("reason")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
             return Err(ConnectError::PreAuth(anyhow!(
                 "coordinator rejected auth: {reason}"
             )));
@@ -316,7 +327,13 @@ fn parse_job(v: &Value) -> Result<Job> {
         .get("deadline_ms")
         .and_then(Value::as_u64)
         .unwrap_or(60_000) as u32;
-    Ok(Job { job_id, model_id, request, format, deadline_ms })
+    Ok(Job {
+        job_id,
+        model_id,
+        request,
+        format,
+        deadline_ms,
+    })
 }
 
 async fn recv_json<S>(stream: &mut S) -> Result<Value>
@@ -406,4 +423,3 @@ mod tests {
         );
     }
 }
-

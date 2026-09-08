@@ -52,9 +52,14 @@ default_output_per_1m = 750000
     // `models` array — the agent must register *something* so the coordinator
     // knows it's online with no models.
     let caps = result.to_capabilities(&cfg);
-    assert_eq!(caps.get("type").and_then(|v| v.as_str()), Some("capabilities"));
     assert_eq!(
-        caps.get("models").and_then(|v| v.as_array()).map(|a| a.len()),
+        caps.get("type").and_then(|v| v.as_str()),
+        Some("capabilities")
+    );
+    assert_eq!(
+        caps.get("models")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len()),
         Some(0)
     );
 }

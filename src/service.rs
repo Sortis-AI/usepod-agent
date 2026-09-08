@@ -21,8 +21,8 @@ use std::process::Command as ProcCommand;
 
 use anyhow::{Context, Result, bail};
 use service_manager::{
-    RestartPolicy, ServiceInstallCtx, ServiceLabel, ServiceLevel, ServiceManager,
-    ServiceStartCtx, ServiceStatus, ServiceStatusCtx, ServiceStopCtx, ServiceUninstallCtx,
+    RestartPolicy, ServiceInstallCtx, ServiceLabel, ServiceLevel, ServiceManager, ServiceStartCtx,
+    ServiceStatus, ServiceStatusCtx, ServiceStopCtx, ServiceUninstallCtx,
 };
 
 /// Service identity. Platforms render this differently:
@@ -392,7 +392,10 @@ fn logs(follow: bool) -> Result<()> {
             let mut c = ProcCommand::new("powershell");
             c.arg("-NoProfile").arg("-Command");
             if follow {
-                c.arg(format!("Get-Content -Path '{}' -Wait -Tail 200", path.display()));
+                c.arg(format!(
+                    "Get-Content -Path '{}' -Wait -Tail 200",
+                    path.display()
+                ));
             } else {
                 c.arg(format!("Get-Content -Path '{}' -Tail 200", path.display()));
             }
@@ -498,9 +501,7 @@ fn ensure_linux_user(user: &str) -> Result<()> {
         .status()
         .context("failed to invoke useradd; install shadow-utils or create the user manually")?;
     if !status.success() {
-        bail!(
-            "useradd exited with {status}; create the `{user}` system user manually then retry"
-        );
+        bail!("useradd exited with {status}; create the `{user}` system user manually then retry");
     }
     Ok(())
 }
@@ -546,7 +547,10 @@ mod tests {
             log_level: None,
         };
         let ctx = build_install_ctx(&opts).expect("ctx builds");
-        assert_eq!(ctx.args.first().map(|s| s.as_os_str()), Some(std::ffi::OsStr::new("run")));
+        assert_eq!(
+            ctx.args.first().map(|s| s.as_os_str()),
+            Some(std::ffi::OsStr::new("run"))
+        );
         assert!(ctx.autostart);
     }
 
@@ -562,7 +566,16 @@ mod tests {
             .iter()
             .map(|s| s.to_string_lossy().into_owned())
             .collect();
-        assert_eq!(args, vec!["run", "--config", "/etc/usepod/agent.toml", "--log-level", "debug"]);
+        assert_eq!(
+            args,
+            vec![
+                "run",
+                "--config",
+                "/etc/usepod/agent.toml",
+                "--log-level",
+                "debug"
+            ]
+        );
     }
 
     #[test]

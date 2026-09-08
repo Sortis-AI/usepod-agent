@@ -56,8 +56,8 @@ pub async fn run(args: SetupArgs) -> Result<()> {
 
     // Identity — generate if missing. Persisting the keypair before pairing
     // means a re-run of `setup` after a partial pair stays continuous.
-    let identity = crate::identity::load_or_create(&args.identity_path)
-        .context("identity load/create")?;
+    let identity =
+        crate::identity::load_or_create(&args.identity_path).context("identity load/create")?;
     info!(public_key = %identity.public_key_b64(), "identity ready");
 
     // Backend autodetection. Probes well-known ports with a short timeout.
@@ -84,29 +84,29 @@ pub async fn run(args: SetupArgs) -> Result<()> {
     }
 
     // Issue pair code.
-    let http = Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()?;
+    let http = Client::builder().timeout(Duration::from_secs(30)).build()?;
     let issue = issue_pair_code(&http, &args.coordinator, &identity).await?;
 
     print_pair_banner(&issue.pair_code, &args.coordinator);
 
     // Long-poll for claim.
-    let active = match poll_until_active(&http, &args.coordinator, &issue.poll_token, &backends)
-        .await?
-    {
-        PollOutcome::Active(a) => a,
-        PollOutcome::Expired => {
-            println!();
-            println!("✗ Pair code expired. Run `usepod-agent setup` again.");
-            std::process::exit(1);
-        }
-    };
+    let active =
+        match poll_until_active(&http, &args.coordinator, &issue.poll_token, &backends).await? {
+            PollOutcome::Active(a) => a,
+            PollOutcome::Expired => {
+                println!();
+                println!("✗ Pair code expired. Run `usepod-agent setup` again.");
+                std::process::exit(1);
+            }
+        };
 
     println!();
     println!("✓ Paired as provider {}", active.provider_id);
     if !active.activated_models.is_empty() {
-        println!("  Operator activated {} model(s):", active.activated_models.len());
+        println!(
+            "  Operator activated {} model(s):",
+            active.activated_models.len()
+        );
         for m in &active.activated_models {
             println!("    - {}", m.model_id);
         }
@@ -299,10 +299,14 @@ const PROBE_TIMEOUT: Duration = Duration::from_millis(800);
 
 pub async fn probe_local_backends() -> Vec<ProbedBackend> {
     let probes = vec![
-        ("vllm",     "http://localhost:8000",  probe_openai_compat as ProbeFn),
-        ("llamacpp", "http://localhost:8080",  probe_openai_compat),
-        ("lmstudio", "http://localhost:1234",  probe_openai_compat),
-        ("ollama",   "http://localhost:11434", probe_ollama),
+        (
+            "vllm",
+            "http://localhost:8000",
+            probe_openai_compat as ProbeFn,
+        ),
+        ("llamacpp", "http://localhost:8080", probe_openai_compat),
+        ("lmstudio", "http://localhost:1234", probe_openai_compat),
+        ("ollama", "http://localhost:11434", probe_ollama),
     ];
     let mut out = Vec::new();
     for (kind, url, probe) in probes {
@@ -321,7 +325,8 @@ pub async fn probe_local_backends() -> Vec<ProbedBackend> {
     out
 }
 
-type ProbeFn = fn(&str) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<String>>> + Send>>;
+type ProbeFn =
+    fn(&str) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<String>>> + Send>>;
 
 fn probe_openai_compat(
     url: &str,
@@ -397,8 +402,13 @@ fn render_paired_config(
 
     s.push_str("[coordinator]\n");
     let ws_url = http_to_ws(&args.coordinator);
-    s.push_str(&format!("url             = \"{ws_url}/provider/connect\"\n"));
-    s.push_str(&format!("# host_token     = \"{}\"  (paired)\n", short_secret(&active.host_token)));
+    s.push_str(&format!(
+        "url             = \"{ws_url}/provider/connect\"\n"
+    ));
+    s.push_str(&format!(
+        "# host_token     = \"{}\"  (paired)\n",
+        short_secret(&active.host_token)
+    ));
     s.push_str(&format!("# provider_id   = \"{}\"\n\n", active.provider_id));
 
     s.push_str("[identity]\n");

@@ -193,8 +193,7 @@ fn serialize(
 }
 
 fn write_with_mode_0600(path: &Path, body: &str) -> Result<()> {
-    std::fs::write(path, body)
-        .with_context(|| format!("writing identity {}", path.display()))?;
+    std::fs::write(path, body).with_context(|| format!("writing identity {}", path.display()))?;
     set_owner_only_perms(path)?;
     Ok(())
 }

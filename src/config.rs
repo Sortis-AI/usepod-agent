@@ -52,7 +52,9 @@ pub struct Identity {
 
 impl Default for Identity {
     fn default() -> Self {
-        Self { key_path: default_key_path() }
+        Self {
+            key_path: default_key_path(),
+        }
     }
 }
 
@@ -105,7 +107,10 @@ pub struct Limits {
 
 impl Default for Limits {
     fn default() -> Self {
-        Self { max_concurrent: default_max_concurrent(), max_tokens_per_minute: None }
+        Self {
+            max_concurrent: default_max_concurrent(),
+            max_tokens_per_minute: None,
+        }
     }
 }
 
@@ -141,8 +146,8 @@ pub fn load(path: Option<&Path>, allow_insecure: bool) -> Result<Config> {
     };
     let raw = std::fs::read_to_string(&resolved)
         .with_context(|| format!("reading config from {}", resolved.display()))?;
-    let cfg: Config = toml::from_str(&raw)
-        .with_context(|| format!("parsing TOML in {}", resolved.display()))?;
+    let cfg: Config =
+        toml::from_str(&raw).with_context(|| format!("parsing TOML in {}", resolved.display()))?;
     validate(&cfg, allow_insecure)?;
     Ok(cfg)
 }
@@ -186,7 +191,9 @@ pub fn validate(cfg: &Config, allow_insecure: bool) -> Result<()> {
     match parsed.scheme() {
         "wss" => {}
         "ws" if allow_insecure => {}
-        "ws" => bail!("coordinator.url must be wss:// in production (use --allow-insecure to override)"),
+        "ws" => {
+            bail!("coordinator.url must be wss:// in production (use --allow-insecure to override)")
+        }
         other => bail!("coordinator.url scheme must be wss or ws, got {other}"),
     }
 

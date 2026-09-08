@@ -98,11 +98,7 @@ pub fn build_backend(cfg: &CfgBackend) -> Option<Arc<dyn Backend>> {
             .url
             .as_deref()
             .map(|u| Arc::new(OllamaBackend::new(u)) as Arc<dyn Backend>),
-        "openrouter" => match cfg
-            .api_key_env
-            .as_deref()
-            .map(OpenRouterBackend::from_env)
-        {
+        "openrouter" => match cfg.api_key_env.as_deref().map(OpenRouterBackend::from_env) {
             Some(Ok(b)) => Some(Arc::new(b) as Arc<dyn Backend>),
             Some(Err(e)) => {
                 warn!(?e, "skipping openrouter backend (no api key)");
